@@ -1,4 +1,4 @@
--- GUI Tracker Trigger
+-- Safe Trigger Tracker GUI
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -7,7 +7,7 @@ local StarterGui = game:GetService("StarterGui")
 
 -- Buat ScreenGui
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TriggerTrackerGUI"
+ScreenGui.Name = "SafeTriggerTrackerGUI"
 ScreenGui.Parent = game.CoreGui
 
 -- Frame utama
@@ -66,30 +66,12 @@ end
 -- Variabel kontrol
 local running = false
 local connections = {}
-local oldNamecall
 
--- Fungsi untuk start tracking
+-- Fungsi start tracking aman
 local function StartTracking()
     if running then return end
     running = true
-    logToGUI("=== Tracking dimulai ===", Color3.fromRGB(0, 255, 255))
-
-    -- Track RemoteEvent & RemoteFunction
-    local function trackFolder(folder)
-        for _, obj in pairs(folder:GetDescendants()) do
-            if obj:IsA("RemoteEvent") then
-                local conn = obj.OnClientEvent:Connect(function(...)
-                    logToGUI("[RemoteEvent RECEIVED] "..obj:GetFullName())
-                end)
-                table.insert(connections, conn)
-            elseif obj:IsA("RemoteFunction") then
-                obj.OnClientInvoke = function(...)
-                    logToGUI("[RemoteFunction INVOKED] "..obj:GetFullName())
-                end
-            end
-        end
-    end
-    trackFolder(ReplicatedStorage)
+    logToGUI("=== Safe Tracking dimulai ===", Color3.fromRGB(0, 255, 255))
 
     -- Track ProximityPrompt & ClickDetector
     local function trackWorkspace(obj)
@@ -115,23 +97,26 @@ local function StartTracking()
     end
     table.insert(connections, Workspace.DescendantAdded:Connect(trackWorkspace))
 
-    -- Hookmetamethod universal untuk FireServer / InvokeServer
-    oldNamecall = getrawmetatable(game).__namecall
-    local mt = getrawmetatable(game)
-    setreadonly(mt, false)
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if method == "FireServer" or method == "InvokeServer" then
-            local args = {...}
-            local argStr = ""
-            for i,v in ipairs(args) do
-                argStr = argStr .. tostring(v) .. ", "
+    -- Track RemoteEvent & RemoteFunction di folder tertentu
+    local function trackFolder(folder)
+        for _, obj in pairs(folder:GetDescendants()) do
+            if obj:IsA("RemoteEvent") then
+                local conn = obj.OnClientEvent:Connect(function(...)
+                    logToGUI("[RemoteEvent RECEIVED] "..obj:GetFullName())
+                end)
+                table.insert(connections, conn)
+            elseif obj:IsA("RemoteFunction") then
+                local oldInvoke = obj.OnClientInvoke
+                obj.OnClientInvoke = function(...)
+                    logToGUI("[RemoteFunction INVOKED] "..obj:GetFullName())
+                    if oldInvoke then
+                        return oldInvoke(...)
+                    end
+                end
             end
-            argStr = argStr:sub(1, -3)
-            logToGUI("[Remote SENT] "..tostring(self).." | "..method.." | Args: "..argStr, Color3.fromRGB(255,255,0))
         end
-        return oldNamecall(self, ...)
-    end)
+    end
+    trackFolder(ReplicatedStorage) -- bisa diganti folder spesifik
 end
 
 -- Fungsi stop tracking
@@ -139,15 +124,10 @@ local function StopTracking()
     if not running then return end
     running = false
     logToGUI("=== Tracking dihentikan ===", Color3.fromRGB(255, 0, 0))
-    -- Disconnect semua koneksi
     for _, conn in ipairs(connections) do
         pcall(function() conn:Disconnect() end)
     end
     connections = {}
-    -- Restore __namecall
-    if oldNamecall then
-        getrawmetatable(game).__namecall = oldNamecall
-    end
 end
 
 -- Tombol event
